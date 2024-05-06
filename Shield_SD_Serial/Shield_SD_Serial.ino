@@ -1,38 +1,63 @@
-#include <SPI.h>
-#include <Ethernet.h>
+#include <EtherCard.h>
 
-byte mac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 }; // Dirección MAC del shield Ethernet
-IPAddress ip(192,168,18,200); // Dirección IP del Arduino Nano
-IPAddress dns(192,168,18,1);
-IPAddress gateway(192,168,18,1);
-IPAddress subnet(255,255,255,0);
-
-EthernetServer server(80); // Puerto para el servidor web
+static byte mymac[] = {0x74,0x69,0x69,0x2D,0x30,0x31};
+static byte ip[] = {192,168,1,200}; //Cangrejo
+byte Ethernet::buffer[700];
+char EstadoP7 = "OFF";
 
 void setup() {
-  Ethernet.begin(mac, ip, dns, gateway, subnet); // Iniciar la conexión Ethernet
-  server.begin(); // Iniciar el servidor web
+  Serial.begin(9600);
+  if (!ether.begin(sizeof Ethernet::buffer, mymac, 10))
+    Serial.println("Error al iniciar ethernet");
+  else
+    Serial.println("Ethernet inicializado");
+  if (!ether.staticSetup(ip))
+    Serial.println("No se pudo obtener dirección IP");
 }
 
 void loop() {
-  EthernetClient client = server.available(); // Esperar a que llegue una conexión
-  
-  if (client) { // Si hay una conexión
-    while (client.connected()) { // Mientras la conexión esté activa
-      client.println("HTTP/1.1 200 OK"); // Enviar el encabezado HTTP
-      client.println("Content-Type: text/html");
-      client.println("Connection: close");
-      client.println();
-      client.println("<!DOCTYPE HTML>");
-      client.println("<html>");
-      client.println("<head><title>Ethernet Shield V1.0 Nano</title></head>");
-      client.println("<body>");
-      client.println("<h1>Hola desde Arduino Nano con Ethernet Shield V1.0</h1>");
-      client.println("</body>");
-      client.println("</html>");
-      
-      break; // Salir del bucle
+  word rec = ether.packetReceive();
+  word pack = ether.packetLoop(rec);
+  if(pack) {
+    Serial.println(EstadoP7);
+    if (strstr((char *)Ethernet::buffer + pack, "POST /?estado=") != 0) {
+      Serial.println(EstadoP7);
+      char *ptr = (char *)Ethernet::buffer + pack;
+      ptr = strstr(ptr, "estado=");
+      Serial.println("Dato recibido= ");
+      //Serial.println(ptr);
+      if (ptr != 0) {
+        //ptr += 7; // saltar "estado="
+        //EstadoP7[0] = ptr[0];
+        ether.httpServerReply(homePage());
+        return;
+      }
     }
-    client.stop(); // Cerrar la conexión
+    ether.httpServerReply(homePage());
   }
+}
+
+static word homePage() {
+  BufferFiller bfill = ether.tcpOffset();
+  bfill.emit_p(PSTR(
+"<html>"
+"<head>"
+"<script>"
+"function enviarEstado() {"
+"  var estado = document.getElementById('estado').value;"
+"  var xhttp = new XMLHttpRequest();"
+"  xhttp.open('POST', '/?estado=' + estado, true);"
+"  xhttp.send();"
+"}"
+"</script>"
+"</head>"
+"<body>"
+"<h2>Control de LED</h2>"
+"<input type='text' id='estado' name='estado' placeholder='ON/OFF' />"
+"<button onclick='enviarEstado()'>Enviar</button>"
+"<p>Estado del LED: $S</p>"
+"</body>"
+"</html>"
+), EstadoP7);
+  return bfill.position();
 }

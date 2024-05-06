@@ -1,66 +1,63 @@
-/*Ejemplo 02: Ethernet Hanrun HR911105A*/
- 
 #include <EtherCard.h>
 
+static byte mymac[] = {0x74,0x69,0x69,0x2D,0x30,0x31};
+static byte ip[] = {192,168,1,200}; //Cangrejo
+byte Ethernet::buffer[700];
+char EstadoP7 []= "OFF";
 
-// Si colocamos 1 deshabilitamos el DHCP
-// Si colocamos 0 colocamos una IP estática
-#define ESTATICA 1
-
-#if ESTATICA
-  // Colocamos la dirección IP al dispositivo
-  static byte myip[] = { 192,168,18,200 };
-  // Colocamos la dirección IP de la puerta de enlace de nuestro router
-  static byte gwip[] = { 192,168,2,1 };
-#endif
-
-// Colocamos la dirección MAC, que sera único en nuestra red
-static byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
-
-// Enviar y recibir buffer (TCP/IP)
-byte Ethernet::buffer[500]; 
-
-const char page[] PROGMEM =
-"HTTP/1.0 503 Ethernet Hanrun HR911105A - \r\n"
-"Content-Type: text/html\r\n"
-"Retry-After: 600\r\n"
-"\r\n"
-"<html>"
-  "<head><title>"
-    "Ejemplo #2: Ethernet Hanrun HR911105A"
-  "</title></head>"
-  "<body>"
-    "<h3>Hola Mundo</h3>"
-    "<p><em>"
-      "Esto es una prueba.<br />"
-      ":)."
-    "</em></p>"
-  "</body>"
-"</html>"
-;
-
-void setup(){
-  Serial.begin(19200);
-  Serial.println("\n[Vuelva pronto]");
-  
-  if (ether.begin(sizeof Ethernet::buffer, mymac) == 0) 
-    Serial.println( "Error al acceder al controlador Ethernet");
-#if ESTATICA
-  ether.staticSetup(myip, gwip);
-#else
-  if (!ether.dhcpSetup())
-    Serial.println("DHCP falló");
-#endif
-
-  ether.printIp("IP:  ", ether.myip);
-  ether.printIp("GW:  ", ether.gwip);  
-  ether.printIp("DNS: ", ether.dnsip);  
+void setup() {
+  Serial.begin(9600);
+  if (!ether.begin(sizeof Ethernet::buffer, mymac, 10))
+    Serial.println("Error al iniciar ethernet");
+  else
+    Serial.println("Ethernet inicializado");
+  if (!ether.staticSetup(ip))
+    Serial.println("No se pudo obtener dirección IP");
 }
 
-void loop(){
-  //Se espera un paquete TCP entrante, luego se ignora el contenido
-  if (ether.packetLoop(ether.packetReceive())) {
-    memcpy_P(ether.tcpOffset(), page, sizeof page);
-    ether.httpServerReply(sizeof page - 1);
+void loop() {
+  word rec = ether.packetReceive();
+  word pack = ether.packetLoop(rec);
+  if(pack) {
+    if (strstr((char *)Ethernet::buffer + pack, "POST /?estado=") != 0) {
+      //Serial.println("Mensaje recibido= ");
+      //Serial.println(EstadoP7[3]);
+      char *ptr = (char *)Ethernet::buffer + pack;
+      ptr = strstr(ptr, "estado=");
+      if (ptr != 0) {
+        ptr += 7; // saltar "estado="
+        EstadoP7[0] = ptr[0];
+        EstadoP7[1] = ptr[1];
+        Serial.println(EstadoP7[0]);
+        Serial.println(EstadoP7[1]);
+        ether.httpServerReply(homePage());
+        return;
+      }
+    }
+    ether.httpServerReply(homePage());
   }
+}
+
+static word homePage() {
+  BufferFiller bfill = ether.tcpOffset();
+  bfill.emit_p(PSTR(
+"<html>"
+"<head>"
+"<script>"
+"function enviarEstado() {"
+"  var estado = document.getElementById('estado').value;"
+"  var xhttp = new XMLHttpRequest();"
+"  xhttp.open('POST', '/?estado=' + estado, true);"
+"  xhttp.send();"
+"}"
+"</script>"
+"</head>"
+"<body>"
+"<h2>Control de LED</h2>"
+"<input type='text' id='estado' name='estado' placeholder='ON/OFF' />"
+"<button onclick='enviarEstado()'>Enviar</button>"
+"</body>"
+"</html>"
+));
+  return bfill.position();
 }
